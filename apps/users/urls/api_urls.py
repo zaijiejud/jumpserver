@@ -14,25 +14,24 @@ app_name = 'users'
 router = BulkRouter()
 router.register(r'users', api.UserViewSet, 'user')
 router.register(r'groups', api.UserGroupViewSet, 'user-group')
-
+router.register(r'users-groups-relations', api.UserUserGroupRelationViewSet, 'users-groups-relation')
+router.register(r'service-account-registrations', api.ServiceAccountRegistrationViewSet, 'service-account-registration')
+router.register(r'connection-token', auth_api.ConnectionTokenViewSet, 'connection-token')
 
 urlpatterns = [
-    path('connection-token/', auth_api.UserConnectionTokenApi.as_view(),
-         name='connection-token'),
-    path('auth/', auth_api.UserAuthApi.as_view(), name='user-auth'),
-    path('otp/auth/', auth_api.UserOtpAuthApi.as_view(), name='user-otp-auth'),
-
+    path('users-groups/tree/', api.UserGroupTreeApi.as_view(), name='users-groups-tree'),
     path('profile/', api.UserProfileApi.as_view(), name='user-profile'),
-    path('otp/reset/', api.UserResetOTPApi.as_view(), name='my-otp-reset'),
-    path('users/<uuid:pk>/otp/reset/', api.UserResetOTPApi.as_view(), name='user-reset-otp'),
+    path('profile/lock-password/', api.UserLockPasswordApi.as_view(), name='user-lock-password'),
+    path('profile/file-encryption/', api.UserFileEncryptionApi.as_view(), name='user-file-encryption'),
+    path('profile/idle-lock/', api.UserIdleLockApi.as_view(), name='user-idle-lock'),
+    path('profile/password/', api.UserPasswordApi.as_view(), name='user-password'),
+    path('profile/mfa/reset/', api.UserResetMFAApi.as_view(), name='my-mfa-reset'),
+    path('profile/permissions/', api.UserPermissionsApi.as_view(), name='user-permissions'),
+    path('preference/', api.PreferenceApi.as_view(), name='preference'),
+    path('users/<uuid:pk>/mfa/reset/', api.UserResetMFAApi.as_view(), name='user-reset-mfa'),
     path('users/<uuid:pk>/password/', api.UserChangePasswordApi.as_view(), name='change-user-password'),
     path('users/<uuid:pk>/password/reset/', api.UserResetPasswordApi.as_view(), name='user-reset-password'),
     path('users/<uuid:pk>/pubkey/reset/', api.UserResetPKApi.as_view(), name='user-public-key-reset'),
-    path('users/<uuid:pk>/pubkey/update/', api.UserUpdatePKApi.as_view(), name='user-public-key-update'),
     path('users/<uuid:pk>/unblock/', api.UserUnblockPKApi.as_view(), name='user-unblock'),
-    path('users/<uuid:pk>/groups/', api.UserUpdateGroupApi.as_view(), name='user-update-group'),
-    path('groups/<uuid:pk>/users/', api.UserGroupUpdateUserApi.as_view(), name='user-group-update-user'),
 ]
 urlpatterns += router.urls
-
-

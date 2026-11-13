@@ -15,6 +15,8 @@ dump.rdb
 .tox
 .cache/
 .idea/
+.vscode/
+.fleet/
 db.sqlite3
 config.py
 config.yml
@@ -30,7 +32,30 @@ media
 celerybeat.pid
 django.db
 celerybeat-schedule.db
-data/static
 docs/_build/
 xpack
-logs/*
+xpack.bak
+### Vagrant ###
+.vagrant/
+release/*
+releashe
+/apps/script.py
+data/*
+test.py
+.history/
+.test/
+/apps/static/pam/
+*.mo
+apps.iml
+*.db
+*.mmdb
+*.ipdb
+# Downloaded face-recognition model artifacts
+*.onnx
+*.onnx.data
+**/buffalo_l.zip
+requirements/face_models/
+context
+luna
+lina
+.envrc

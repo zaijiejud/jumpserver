@@ -1,79 +1,41 @@
 # -*- coding: utf-8 -*-
-#
+from django.db.models import Q
 
-from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, generics
-from rest_framework.views import Response
-
-from common.permissions import IsOrgAdmin
-from orgs.utils import current_org
-from ..models import Task, AdHoc, AdHocRunHistory
-from ..serializers import TaskSerializer, AdHocSerializer, \
-    AdHocRunHistorySerializer
-from ..tasks import run_ansible_task
+from common.api.generic import JMSBulkModelViewSet
+from common.permissions import IsOwnerOrAdminWritable
+from common.utils.http import is_true
+from ops.filters import AdHocFilterSet
+from rbac.permissions import RBACPermission
+from ..const import Scope
+from ..models import AdHoc
+from ..serializers import AdHocSerializer
 
 __all__ = [
-    'TaskViewSet', 'TaskRun', 'AdHocViewSet', 'AdHocRunHistoryViewSet'
+    'AdHocViewSet'
 ]
 
 
-class TaskViewSet(viewsets.ModelViewSet):
-    queryset = Task.objects.all()
-    serializer_class = TaskSerializer
-    permission_classes = (IsOrgAdmin,)
+class AdHocViewSet(JMSBulkModelViewSet):
+    queryset = AdHoc.objects.all()
+    serializer_class = AdHocSerializer
+    permission_classes = (RBACPermission, IsOwnerOrAdminWritable)
+    search_fields = ('name', 'comment')
+    filterset_class = AdHocFilterSet
+    ordering_fields = (
+        'name', 'module', 'scope', 'created_by', 'date_created',
+        'date_updated',
+    )
+
+    def allow_bulk_destroy(self, qs, filtered):
+        for obj in filtered:
+            self.check_object_permissions(self.request, obj)
+        return True
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        if current_org.is_real():
-            queryset = queryset.filter(created_by=current_org.id)
+        user = self.request.user
+        if is_true(self.request.query_params.get('only_mine')):
+            queryset = queryset.filter(creator=user)
         else:
-            queryset = queryset.filter(created_by='')
+            queryset = queryset.filter(Q(creator=user) | Q(scope=Scope.public))
         return queryset
-
-
-class TaskRun(generics.RetrieveAPIView):
-    queryset = Task.objects.all()
-    # serializer_class = TaskViewSet
-    permission_classes = (IsOrgAdmin,)
-
-    def retrieve(self, request, *args, **kwargs):
-        task = self.get_object()
-        t = run_ansible_task.delay(str(task.id))
-        return Response({"task": t.id})
-
-
-class AdHocViewSet(viewsets.ModelViewSet):
-    queryset = AdHoc.objects.all()
-    serializer_class = AdHocSerializer
-    permission_classes = (IsOrgAdmin,)
-
-    def get_queryset(self):
-        task_id = self.request.query_params.get('task')
-        if task_id:
-            task = get_object_or_404(Task, id=task_id)
-            self.queryset = self.queryset.filter(task=task)
-        return self.queryset
-
-
-class AdHocRunHistoryViewSet(viewsets.ModelViewSet):
-    queryset = AdHocRunHistory.objects.all()
-    serializer_class = AdHocRunHistorySerializer
-    permission_classes = (IsOrgAdmin,)
-
-    def get_queryset(self):
-        task_id = self.request.query_params.get('task')
-        adhoc_id = self.request.query_params.get('adhoc')
-        if task_id:
-            task = get_object_or_404(Task, id=task_id)
-            adhocs = task.adhoc.all()
-            self.queryset = self.queryset.filter(adhoc__in=adhocs)
-
-        if adhoc_id:
-            adhoc = get_object_or_404(AdHoc, id=adhoc_id)
-            self.queryset = self.queryset.filter(adhoc=adhoc)
-        return self.queryset
-
-
-
-
-

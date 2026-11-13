@@ -1,88 +1,104 @@
 # -*- coding: utf-8 -*-
 #
 
+from django.db.models import F
+from django.utils.timezone import get_current_timezone
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
-from django.utils.translation import ugettext_lazy as _
 
-from assets.models import Node, SystemUser, Asset
-from assets.serializers import ProtocolsField
-from .asset_permission import ActionsField
+from accounts.models import Account
+from assets.const import Category, AllTypes
+from assets.models import Node, Asset, Platform
+from assets.serializers.asset.common import AssetProtocolsPermsSerializer
+from common.serializers import ResourceLabelsMixin
+from common.serializers.fields import ObjectRelatedField, LabeledChoiceField
+from orgs.mixins.serializers import OrgResourceModelSerializerMixin
+from perms.serializers.permission import ActionChoicesField
 
 __all__ = [
-    'GrantedNodeSerializer',
-    'NodeGrantedSerializer', 'AssetGrantedSerializer',
-    'ActionsSerializer', 'AssetSystemUserSerializer',
+    'NodePermedSerializer', 'AssetPermedSerializer',
+    'AssetPermedDetailSerializer', 'AccountsPermedSerializer'
 ]
 
 
-class AssetSystemUserSerializer(serializers.ModelSerializer):
-    """
-    查看授权的资产系统用户的数据结构，这个和AssetSerializer不同，字段少
-    """
-    actions = ActionsField(read_only=True)
-
-    class Meta:
-        model = SystemUser
-        only_fields = (
-            'id', 'name', 'username', 'priority',
-            'protocol', 'login_mode',
-        )
-        fields = list(only_fields) + ["actions"]
-        read_only_fields = fields
-
-
-class AssetGrantedSerializer(serializers.ModelSerializer):
-    """
-    被授权资产的数据结构
-    """
-    protocols = ProtocolsField(label=_('Protocols'), required=False, read_only=True)
-    system_users_granted = AssetSystemUserSerializer(many=True, read_only=True)
-    system_users_join = serializers.SerializerMethodField()
-    system_users_only_fields = AssetSystemUserSerializer.Meta.only_fields
+class AssetPermedSerializer(OrgResourceModelSerializerMixin, ResourceLabelsMixin):
+    """ 被授权资产的数据结构 """
+    platform = ObjectRelatedField(required=False, queryset=Platform.objects, label=_('Platform'))
+    category = LabeledChoiceField(choices=Category.choices, read_only=True, label=_('Category'))
+    type = LabeledChoiceField(choices=AllTypes.choices(), read_only=True, label=_('Type'))
+    zone = ObjectRelatedField(required=False, read_only=True, label=_('Zone'))
 
     class Meta:
         model = Asset
         only_fields = [
-            "id", "hostname", "ip", "protocols", "os", 'domain',
-            "platform", "org_id",
+            'id', 'name', 'address', 'zone', 'platform',
+            'comment', 'org_id', 'is_active', 'date_verified',
+            'created_by', 'date_created', 'connectivity', 'nodes', 'labels'
         ]
-        fields = only_fields + ['system_users_granted', 'system_users_join', "org_name"]
+        fields = only_fields + ['category', 'type'] + ['org_name']
         read_only_fields = fields
+
+    @classmethod
+    def setup_eager_loading(cls, queryset):
+        """ Perform necessary eager loading of data. """
+        queryset = queryset.prefetch_related('zone', 'nodes', 'labels', 'labels__label') \
+            .prefetch_related('platform') \
+            .annotate(category=F("platform__category")) \
+            .annotate(type=F("platform__type"))
+        return queryset
+
+
+class NodePermedSerializer(serializers.ModelSerializer):
+    assets_amount = serializers.SerializerMethodField()
 
     @staticmethod
-    def get_system_users_join(obj):
-        system_users = [s.username for s in obj.system_users_granted]
-        return ', '.join(system_users)
+    def get_assets_amount(obj):
+        return getattr(
+            obj, 'assets_amount_realtime', obj.assets_amount
+        )
 
-
-class NodeGrantedSerializer(serializers.ModelSerializer):
-    """
-    授权资产组
-    """
-    assets_granted = AssetGrantedSerializer(many=True, read_only=True)
-    assets_amount = serializers.ReadOnlyField()
-    name = serializers.ReadOnlyField(source='value')
-
-    assets_only_fields = AssetGrantedSerializer.Meta.only_fields
-    system_users_only_fields = AssetGrantedSerializer.system_users_only_fields
-
-    class Meta:
-        model = Node
-        only_fields = ['id', 'key', 'value', "org_id"]
-        fields = only_fields + [
-            'name', 'assets_granted', 'assets_amount',
-        ]
-        read_only_fields = fields
-
-
-class GrantedNodeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Node
         fields = [
-            'id', 'name', 'key', 'value',
+            'id', 'name', 'key', 'value', 'full_value',
+            'org_id', "assets_amount"
         ]
         read_only_fields = fields
 
 
-class ActionsSerializer(serializers.Serializer):
-    actions = ActionsField(read_only=True)
+class AccountsPermedSerializer(serializers.ModelSerializer):
+    actions = ActionChoicesField(read_only=True)
+    username = serializers.CharField(source='full_username', read_only=True)
+    date_expired = serializers.SerializerMethodField()
+    auto_push_protocols = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Account
+        fields = [
+            'id', 'alias', 'name', 'username', 'has_username',
+            'has_secret', 'secret_type', 'actions', 'date_expired', 'auto_push_protocols'
+        ]
+        read_only_fields = fields
+
+    @staticmethod
+    def get_auto_push_protocols(obj):
+        return sorted(getattr(obj, 'auto_push_protocols', ()))
+
+    def get_date_expired(self, obj) -> str:
+        dt = obj.date_expired
+        if dt:
+            dt = dt.astimezone(get_current_timezone())
+            formatted = dt.strftime('%Y/%m/%d %H:%M:%S %z')
+            return formatted
+        else:
+            return None
+
+
+class AssetPermedDetailSerializer(AssetPermedSerializer):
+    # 前面特意加了 permed，避免返回的是资产本身的
+    permed_protocols = AssetProtocolsPermsSerializer(many=True, required=False, label=_('Protocols'))
+    permed_accounts = AccountsPermedSerializer(label=_("Accounts"), required=False, many=True)
+
+    class Meta(AssetPermedSerializer.Meta):
+        fields = AssetPermedSerializer.Meta.fields + ['spec_info', 'permed_protocols', 'permed_accounts']
+        read_only_fields = fields
